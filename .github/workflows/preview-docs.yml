@@ -28,31 +28,6 @@ jobs:
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: List symlinks and hard links
-        run: |
-          echo "Symlinks:"
-          find ./site -type l
-          echo "Hard links:"
-          find ./site -type f -links +1
-
-      - name: Remove symlinks from site
-        run: find ./site -type l -exec rm {} +
-
-      - name: Remove hard links from site
-        run: find ./site -type f -links +1 -exec rm {} +
-
-      - name: Remove hidden files
-        run: find ./site -name '.*' -exec rm -rf {} +
-
-      - name: Check site size
-        run: du -sh ./site
-
-      - name: List files and permissions
-        run: ls -lR ./site
-
-      - name: Check for index.html
-        run: test -f ./site/index.html && echo "index.html found" || (echo "index.html missing" && exit 1)        
-
       - name: Upload static files as artifact
         uses: actions/upload-pages-artifact@v3
         with:
