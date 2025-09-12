@@ -24,6 +24,7 @@ jobs:
           path: ./site
           repository: ${{ github.event.client_payload.artifact_repo }}
           run-id: ${{ github.event.client_payload.artifact_run_id }}
+          github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
