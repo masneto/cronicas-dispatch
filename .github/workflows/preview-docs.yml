@@ -1,0 +1,38 @@
+name: Deploy Docs Preview
+
+on:
+  repository_dispatch:
+    types: [pr-preview]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo B
+        uses: actions/checkout@v4
+
+      - name: Download artifact from repo A
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-${{ github.event.client_payload.pr_number }}
+          path: ./site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy Pages Preview
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Comment on PR in repo A
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.event.client_payload.pr_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
+            -d '{"body":"Preview disponível: '${{ steps.deployment.outputs.page_url }}'/pull/'${{ github.event.client_payload.pr_number }}'"}'
