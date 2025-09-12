@@ -21,6 +21,7 @@ jobs:
         with:
           name: pr-${{ github.event.client_payload.pr_number }}
           path: ./site
+          repository: ${{ github.event.client_payload.artifact_repo }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
