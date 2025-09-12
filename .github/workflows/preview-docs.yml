@@ -28,18 +28,24 @@ jobs:
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: Upload static files as artifact
+      - name: Move site to PR subdir
+        run: |
+          mkdir -p ./public/pr-${{ github.event.client_payload.pr_number }}
+          cp -r ./site/* ./public/pr-${{ github.event.client_payload.pr_number }}/
+
+      - name: Upload github-pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./site
-          name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          path: ./public
           retention-days: 1
+          name: github-pages-pr-${{ github.event.client_payload.pr_number }}          
 
-      # - name: Upload github-pages artifact
-      #   uses: actions/upload-artifact@v4
+      # - name: Upload static files as artifact
+      #   uses: actions/upload-pages-artifact@v3
       #   with:
-      #     name: github-pages #-pr-${{ github.event.client_payload.pr_number }}
       #     path: ./site
+      #     name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+      #     retention-days: 1
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
