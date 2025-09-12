@@ -45,6 +45,12 @@ jobs:
       - name: Check site size
         run: du -sh ./site
 
+      - name: List files and permissions
+        run: ls -lR ./site
+
+      - name: Check for index.html
+        run: test -f ./site/index.html && echo "index.html found" || (echo "index.html missing" && exit 1)        
+
       - name: Upload github-pages artifact
         uses: actions/upload-artifact@v4
         with:
