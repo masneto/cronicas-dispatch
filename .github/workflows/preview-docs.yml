@@ -66,4 +66,4 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d '{"body":"Preview disponível: ${{ steps.deployment.outputs.page_url }}/pr-${{ github.event.client_payload.pr_number }}"}'
+            -d '{"body":"Preview disponível: ${{ steps.deployment.outputs.page_url }}pr-${{ github.event.client_payload.pr_number }}"}'
