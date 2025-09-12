@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   deploy:
+    name: Deploy Docs Preview
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo B
@@ -22,6 +23,7 @@ jobs:
           name: pr-${{ github.event.client_payload.pr_number }}
           path: ./site
           repository: ${{ github.event.client_payload.artifact_repo }}
+          run-id: ${{ github.event.client_payload.artifact_run_id }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
