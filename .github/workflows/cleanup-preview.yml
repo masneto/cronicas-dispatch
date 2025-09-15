@@ -29,12 +29,15 @@ jobs:
           else
             echo "gh-pages branch does not exist. Creating..."
             git checkout --orphan gh-pages
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
             mkdir -p .github
             touch .github/.gitkeep
             git add .github/.gitkeep
             git commit -m "Initialize gh-pages branch"
             git push origin gh-pages
           fi
+
 
       - name: Set variables
         run: |
