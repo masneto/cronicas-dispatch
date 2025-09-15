@@ -12,19 +12,33 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: gh-pages  # sempre usa a branch que está servindo o Pages
+          token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: Setup git
+      - name: Setup Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Download artifact
+      - name: Create gh-pages if missing
+        run: |
+          if ! git show-ref --verify --quiet refs/heads/gh-pages; then
+            git checkout --orphan gh-pages
+            git rm -rf . || true
+            echo "" > index.html
+            git add index.html
+            git commit -m "Initialize gh-pages branch"
+            git push origin gh-pages
+          else
+            git checkout gh-pages
+          fi
+
+      - name: Download PR artifact
         uses: actions/download-artifact@v4
         with:
           name: pr-${{ github.event.client_payload.pr_number }}
@@ -33,7 +47,7 @@ jobs:
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: Copy PR content
+      - name: Move PR preview to branch
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
           TARGET_DIR="./$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}"
@@ -41,33 +55,38 @@ jobs:
           cp -r ./temp-preview/* "$TARGET_DIR/"
           rm -rf ./temp-preview
 
-      - name: Update index.html with all PRs
+      - name: Copy template index.html from main
         run: |
-          TEMPLATE=index.template.html
-          OUTPUT=index.html
-          PR_CARDS=""
+          git fetch origin main:index-template
+          git checkout index-template -- index.template.html
+          cp index.template.html index.html
 
-          for dir in */pr-*; do
-            [ -d "$dir" ] || continue
-            repo=$(dirname "$dir")
-            pr_dir=$(basename "$dir")
-            pr_num=$(echo "$pr_dir" | cut -d'-' -f2)
-
-            PR_CARDS+="<div class='card'><h3><a href='$dir/'>$repo</a></h3><p>Pull Request #$pr_num</p></div>"
-          done
-
-          sed "s|<!-- PR_PLACEHOLDER -->|$PR_CARDS|g" $TEMPLATE > $OUTPUT
-
-      - name: Commit & push changes
+      - name: Commit updates to gh-pages
         run: |
           git add .
-          if git diff --cached --quiet; then
-            echo "No changes detected, skipping commit"
-          else
-            git commit -m "Update preview for PR #${{ github.event.client_payload.pr_number }}"
-            git push origin gh-pages
+          git commit -m "Update previews for PR #${{ github.event.client_payload.pr_number }}" || echo "Nothing to commit"
+          git push origin gh-pages
 
-      - name: Deploy Pages
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./
+          name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          retention-days: 1
+
+      - name: Deploy Pages Preview
+        id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-artifact
+          artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          preview: true
+
+      - name: Comment PR with preview link
+        run: |
+          REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
+          PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}/"
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
+            -d "{\"body\":\"🚀 **Preview disponível!**\\n\\n📖 **Documentação:** $PREVIEW_URL\"}"
