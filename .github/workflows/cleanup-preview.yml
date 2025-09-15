@@ -1,4 +1,5 @@
 name: Cleanup PR Preview
+run-name: 'Cleanup PR Preview for Repository ${{ github.event.client_payload.artifact_repo }} PR #${{ github.event.client_payload.pr_number }}'
 
 on:
   repository_dispatch:
