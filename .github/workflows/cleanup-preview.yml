@@ -74,7 +74,7 @@ jobs:
       - name: Commit and push cleanup
         run: |
           git add -A
-          git commit -m "Remove PR #$PR_NUM preview and index card for $REPO_NAME" || echo "No changes to commit"
+          git commit -m "Remove PR #${PR_NUM} preview and index card for ${REPO_NAME}" || echo "No changes to commit"
           git push origin gh-pages
 
       - name: Upload updated Pages artifact
