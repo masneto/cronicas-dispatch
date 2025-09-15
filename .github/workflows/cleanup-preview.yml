@@ -63,46 +63,73 @@ jobs:
         if: steps.check_status.outputs.needs_removal == 'true'
         run: |
           PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
-          echo "Downloading content from: $PAGES_URL"
+          echo "Downloading ALL content from: $PAGES_URL"
           
           # Cria diretório para o download
           mkdir -p ./current-site
           
-          # Baixa o site atual usando wget com mirror
-          wget --mirror --no-parent --no-host-directories \
-               --cut-dirs=1 --reject-regex=".*\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)(\?.*)?$" \
+          # Baixa o site atual usando wget com mirror - TODOS os arquivos
+          wget --mirror \
+               --no-parent \
+               --no-host-directories \
+               --cut-dirs=1 \
                --directory-prefix=./current-site \
+               --no-check-certificate \
+               --user-agent="GitHub-Actions-Cleanup" \
                --quiet \
-               "$PAGES_URL/" || echo "Download completed with some errors (normal)"
+               "$PAGES_URL/" || echo "Download completed (some 404s are normal)"
           
-          echo "=== Current site structure ==="
-          find ./current-site -type d | head -20
+          echo "=== Downloaded site structure ==="
+          find ./current-site -type d 2>/dev/null | sort | head -30
+          
+          echo "=== Preview directories found ==="
+          find ./current-site -type d -name "pr-*" 2>/dev/null | sort
+          
+          echo "=== Sample files downloaded ==="
+          find ./current-site -type f | head -15
+          
+          echo "=== File count by type ==="
+          find ./current-site -type f -name "*.html" | wc -l | xargs echo "HTML files:"
+          find ./current-site -type f -name "*.css" | wc -l | xargs echo "CSS files:"  
+          find ./current-site -type f -name "*.js" | wc -l | xargs echo "JS files:"
+          find ./current-site -type f -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.gif" -o -name "*.svg" | wc -l | xargs echo "Image files:"
 
-      # Remove a pasta do PR específico
-      - name: Remove PR preview from downloaded content
+      # Remove APENAS a pasta do PR específico
+      - name: Remove ONLY the specific PR preview
         if: steps.check_status.outputs.needs_removal == 'true'
         run: |
           TARGET_DIR="./current-site/${{ env.REPO_NAME }}/pr-${{ env.PR_NUM }}"
           REPO_DIR="./current-site/${{ env.REPO_NAME }}"
           
-          echo "Target directory to remove: $TARGET_DIR"
+          echo "🎯 Target directory to remove: $TARGET_DIR"
+          
+          # Lista outros previews ANTES da remoção
+          echo "=== Other previews BEFORE removal ==="
+          find ./current-site -type d -name "pr-*" 2>/dev/null | grep -v "$TARGET_DIR" | sort || echo "No other previews found"
           
           if [ -d "$TARGET_DIR" ]; then
-            echo "✓ Removing preview directory: $TARGET_DIR"
+            echo "✓ Found and removing ONLY: $TARGET_DIR"
             rm -rf "$TARGET_DIR"
             echo "✓ Successfully removed $TARGET_DIR"
             
-            # Remove pasta do repo se estiver vazia
+            # Remove pasta do repo APENAS se estiver completamente vazia
             if [ -d "$REPO_DIR" ] && [ -z "$(ls -A "$REPO_DIR" 2>/dev/null)" ]; then
               echo "✓ Removing empty repository folder: $REPO_DIR"
               rmdir "$REPO_DIR"
+            else
+              echo "✓ Keeping repository folder (has other content): $REPO_DIR"
+              ls -la "$REPO_DIR" 2>/dev/null || echo "Directory doesn't exist"
             fi
           else
             echo "⚠ Directory $TARGET_DIR not found in downloaded content"
           fi
           
-          echo "=== Final site structure ==="
-          find ./current-site -type d | head -20
+          # Lista outros previews DEPOIS da remoção (devem estar intactos)
+          echo "=== Other previews AFTER removal (should be unchanged) ==="
+          find ./current-site -type d -name "pr-*" 2>/dev/null | sort || echo "No other previews found"
+          
+          echo "=== Final verification: files preserved ==="
+          find ./current-site -type f | wc -l | xargs echo "Total files remaining:"
 
       # Faz upload e deploy do conteúdo atualizado
       - name: Upload updated GitHub Pages
