@@ -13,102 +13,52 @@ jobs:
   cleanup:
     name: Remove PR Preview
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
     
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-      
-      # Sempre cria a estrutura public primeiro
-      - name: Initialize public directory
-        run: |
-          mkdir -p ./public
-          echo "Initialized public directory"
-
-      # Tenta baixar o artifact atual do GitHub Pages
-      - name: Download current GitHub Pages
-        uses: actions/download-artifact@v4
-        with:
-          name: github-pages
-          path: ./public
-        continue-on-error: true
-      
-      - name: Handle artifact download result
-        run: |
-          if [ $? -eq 0 ]; then
-            echo "✓ Successfully downloaded existing github-pages artifact"
-          else
-            echo "⚠ No existing github-pages artifact found (this is normal for first run)"
-          fi
-      
-      - name: Remove PR preview folder
+      - name: Set variables
         run: |
           REPO_NAME=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
           PR_NUM="${{ github.event.client_payload.pr_number }}"
-          TARGET_DIR="./public/$REPO_NAME/pr-$PR_NUM"
-          
           echo "Repository: $REPO_NAME"
           echo "PR Number: $PR_NUM"
-          echo "Target directory: $TARGET_DIR"
-          
-          # Debug: lista estrutura atual
-          echo "=== Current structure ==="
-          find ./public -type d 2>/dev/null | head -20 || echo "No directories found"
-          
-          # Remove a pasta do PR
-          if [ -d "$TARGET_DIR" ]; then
-            echo "✓ Found and removing: $TARGET_DIR"
-            rm -rf "$TARGET_DIR"
-            echo "✓ Successfully removed $TARGET_DIR"
-          else
-            echo "⚠ Folder $TARGET_DIR does not exist"
-          fi
-          
-          # Remove pasta do repositório se estiver vazia
-          REPO_DIR="./public/$REPO_NAME"
-          if [ -d "$REPO_DIR" ] && [ -z "$(ls -A "$REPO_DIR" 2>/dev/null)" ]; then
-            echo "✓ Removing empty repository folder: $REPO_DIR"
-            rmdir "$REPO_DIR"
-          fi
-          
-          # Debug: lista estrutura final
-          echo "=== Final structure ==="
-          find ./public -type d 2>/dev/null | head -20 || echo "No directories found"
+          echo "Preview path would be: /${REPO_NAME}/pr-${PR_NUM}/"
       
-      - name: Check if there's content to upload
+      - name: Check current GitHub Pages status
         run: |
-          if [ "$(ls -A ./public 2>/dev/null)" ]; then
-            echo "HAS_CONTENT=true" >> $GITHUB_ENV
-            echo "✓ Found content in public directory"
+          echo "Checking if GitHub Pages is active..."
+          PAGES_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pages" || echo "{}")
+          
+          PAGES_URL=$(echo "$PAGES_INFO" | jq -r '.html_url // "Not deployed"')
+          echo "Current GitHub Pages URL: $PAGES_URL"
+          
+          if [ "$PAGES_URL" != "Not deployed" ]; then
+            PREVIEW_URL="${PAGES_URL}${REPO_NAME}/pr-${PR_NUM}/"
+            echo "Preview URL was: $PREVIEW_URL"
+            
+            # Testa se ainda existe
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" 2>/dev/null || echo "000")
+            echo "Preview URL status: $STATUS"
+            
+            if [ "$STATUS" = "200" ]; then
+              echo "⚠ Preview ainda está ativo. Será removido no próximo deploy."
+            else
+              echo "✓ Preview já não está acessível."
+            fi
           else
-            echo "HAS_CONTENT=false" >> $GITHUB_ENV
-            echo "⚠ No content found in public directory"
+            echo "ℹ No GitHub Pages deployment found."
           fi
-
-      - name: Upload updated GitHub Pages
-        if: env.HAS_CONTENT == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./public
-          name: github-pages
-          retention-days: 1
       
-      - name: Deploy updated pages
-        if: env.HAS_CONTENT == 'true'
-        uses: actions/deploy-pages@v4
-        with:
-          artifact_name: github-pages
-      
-      - name: Skip deployment if no content
-        if: env.HAS_CONTENT == 'false'
-        run: |
-          echo "🤷 No content to deploy - this is normal if no previews exist yet"
-      
-      - name: Comment on PR about cleanup
+      - name: Comment on PR about cleanup intent
         run: |
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d '{"body":"🧹 Preview removido com sucesso!"}'
+            -d '{"body":"🧹 Preview cleanup executado. O preview será removido no próximo deploy de preview."}'
+      
+      - name: Cleanup complete
+        run: |
+          echo "✅ Cleanup workflow completed"
+          echo "💡 Note: The actual preview removal happens during the next deploy"
+          echo "💡 This prevents issues with missing artifacts and maintains existing previews"
