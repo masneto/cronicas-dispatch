@@ -27,7 +27,7 @@ jobs:
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
-            echo "gh-pages branch does not exist. Creating..."
+            echo "gh-pages branch does not exist locally. Creating..."
             git checkout --orphan gh-pages
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
@@ -35,9 +35,8 @@ jobs:
             touch .github/.gitkeep
             git add .github/.gitkeep
             git commit -m "Initialize gh-pages branch"
-            git push origin gh-pages
+            git push --force-with-lease origin gh-pages
           fi
-
 
       - name: Set variables
         run: |
