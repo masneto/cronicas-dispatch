@@ -15,16 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Set variables
+      - name: Set variables and check GitHub Pages status
         run: |
           REPO_NAME=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
           PR_NUM="${{ github.event.client_payload.pr_number }}"
+          
           echo "Repository: $REPO_NAME"
           echo "PR Number: $PR_NUM"
-          echo "Preview path would be: /${REPO_NAME}/pr-${PR_NUM}/"
-      
-      - name: Check current GitHub Pages status
-        run: |
+          echo "Preview path: $REPO_NAME/pr-$PR_NUM/"
+          
           echo "Checking if GitHub Pages is active..."
           PAGES_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/pages" || echo "{}")
@@ -33,8 +32,10 @@ jobs:
           echo "Current GitHub Pages URL: $PAGES_URL"
           
           if [ "$PAGES_URL" != "Not deployed" ]; then
-            PREVIEW_URL="${PAGES_URL}${REPO_NAME}/pr-${PR_NUM}/"
-            echo "Preview URL was: $PREVIEW_URL"
+            # Remove trailing slash from PAGES_URL and construct correct preview URL
+            PAGES_BASE_URL=$(echo "$PAGES_URL" | sed 's/\/$//')
+            PREVIEW_URL="$PAGES_BASE_URL/$REPO_NAME/pr-$PR_NUM/"
+            echo "Preview URL: $PREVIEW_URL"
             
             # Testa se ainda existe
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" 2>/dev/null || echo "000")
