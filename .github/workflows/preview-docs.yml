@@ -9,6 +9,11 @@ permissions:
   pages: write
   id-token: write
 
+# Garante que apenas um deployment execute por vez
+concurrency:
+  group: github-pages-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy Docs Preview
@@ -22,24 +27,50 @@ jobs:
       # NOVO: Baixa o conteúdo atual do GitHub Pages para preservar outros previews
       - name: Download current GitHub Pages content
         run: |
-          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
-          echo "Downloading existing content from: $PAGES_URL"
+          echo "🔄 Attempting to preserve existing previews..."
+          
+          # Verifica se GitHub Pages está ativo
+          PAGES_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pages" || echo "{}")
+          
+          PAGES_URL=$(echo "$PAGES_INFO" | jq -r '.html_url // "none"')
+          echo "GitHub Pages URL: $PAGES_URL"
           
           mkdir -p ./public
           
-          # Tenta baixar conteúdo existente
-          wget --mirror \
-               --no-parent \
-               --no-host-directories \
-               --cut-dirs=1 \
-               --directory-prefix=./public \
-               --no-check-certificate \
-               --user-agent="GitHub-Actions-Deploy" \
-               --quiet \
-               "$PAGES_URL/" || echo "No existing content found (normal for first deployment)"
+          if [ "$PAGES_URL" != "none" ] && [ "$PAGES_URL" != "null" ]; then
+            echo "📥 Downloading existing content from: $PAGES_URL"
+            
+            # Remove trailing slash para construir URL correta
+            PAGES_BASE_URL=$(echo "$PAGES_URL" | sed 's/\/$//')
+            
+            # Baixa conteúdo existente com mais flags para garantir sucesso
+            wget --recursive \
+                 --no-parent \
+                 --no-host-directories \
+                 --cut-dirs=1 \
+                 --directory-prefix=./public \
+                 --no-check-certificate \
+                 --retry-connrefused \
+                 --tries=3 \
+                 --timeout=30 \
+                 --user-agent="GitHub-Actions-Deploy" \
+                 --accept="*" \
+                 --reject="robots.txt" \
+                 "$PAGES_BASE_URL/" || echo "⚠ Download failed or no content found"
+            
+            # Tenta método alternativo se wget falhou
+            if [ ! "$(ls -A ./public 2>/dev/null)" ]; then
+              echo "🔄 Trying alternative download method..."
+              curl -s "$PAGES_BASE_URL/" > ./public/index.html || echo "Curl also failed"
+            fi
+          else
+            echo "📝 No existing GitHub Pages deployment found - creating first deployment"
+          fi
           
-          echo "=== Existing content structure ==="
-          find ./public -type d 2>/dev/null | sort | head -20 || echo "No existing directories"
+          echo "=== Content downloaded ==="
+          find ./public -type f 2>/dev/null | wc -l | xargs echo "Total files:"
+          find ./public -type d 2>/dev/null | sort | head -20 || echo "No directories"
           
           echo "=== Existing previews found ==="
           find ./public -type d -name "pr-*" 2>/dev/null | sort || echo "No existing previews"
@@ -81,7 +112,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
-          retention-days: 1
+          retention-days: 30
           name: github-pages
 
       - name: Configure Pages
