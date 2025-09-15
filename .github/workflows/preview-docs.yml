@@ -24,71 +24,76 @@ jobs:
       - name: Checkout repo B
         uses: actions/checkout@v4
 
-      # NOVO: Baixa o conteúdo atual do GitHub Pages para preservar outros previews
+      # NOVO: Baixa o artifact atual para preservar outros previews
       - name: Download current GitHub Pages content
         run: |
           echo "🔄 Attempting to preserve existing previews..."
           
-          # Verifica se GitHub Pages está ativo via API
-          PAGES_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/pages" 2>/dev/null || echo "{}")
-          
-          PAGES_URL=$(echo "$PAGES_INFO" | jq -r '.html_url // "none"' 2>/dev/null || echo "none")
-          PAGES_STATUS=$(echo "$PAGES_INFO" | jq -r '.status // "none"' 2>/dev/null || echo "none")
-          
-          echo "GitHub Pages URL: $PAGES_URL"
-          echo "GitHub Pages Status: $PAGES_STATUS"
-          
           mkdir -p ./public
           
-          if [ "$PAGES_URL" != "none" ] && [ "$PAGES_URL" != "null" ] && [ "$PAGES_STATUS" = "built" ]; then
-            echo "📥 GitHub Pages is active - downloading existing content..."
-            
-            # Testa se a URL responde antes de tentar wget
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PAGES_URL" 2>/dev/null || echo "000")
-            echo "Pages HTTP Status: $HTTP_STATUS"
-            
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "✅ Pages accessible - downloading content..."
-              
-              # Remove trailing slash para construir URL correta
-              PAGES_BASE_URL=$(echo "$PAGES_URL" | sed 's/\/$//')
-              
-              # Verifica se é uma página 404 do GitHub Pages
-              PAGE_CONTENT=$(curl -s "$PAGES_BASE_URL/" | head -5)
-              if echo "$PAGE_CONTENT" | grep -q "Page not found.*GitHub Pages"; then
-                echo "ℹ GitHub Pages is active but shows 'Page not found' - no existing content to preserve"
-              else
-                echo "📥 Found existing content - downloading..."
-                
-                # Baixa conteúdo existente
-                wget --recursive \
-                     --level=3 \
-                     --no-parent \
-                     --no-host-directories \
-                     --cut-dirs=1 \
-                     --directory-prefix=./public \
-                     --no-check-certificate \
-                     --tries=2 \
-                     --timeout=15 \
-                     --user-agent="GitHub-Actions-Deploy" \
-                     --quiet \
-                     "$PAGES_BASE_URL/" || echo "⚠ Download failed"
-              fi
-            else
-              echo "⚠ Pages not accessible (HTTP $HTTP_STATUS) - creating fresh deployment"
-            fi
+          # Tenta baixar o artifact github-pages atual
+          echo "📦 Trying to download existing github-pages artifact..."
+          
+          if wget --header="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                  --header="Accept: application/vnd.github+json" \
+                  --quiet \
+                  --output-document=current-artifact.zip \
+                  "https://api.github.com/repos/${{ github.repository }}/actions/artifacts" 2>/dev/null; then
+            echo "✅ Downloaded artifacts list"
           else
-            echo "ℹ No active GitHub Pages deployment found - creating first deployment"
-            echo "  (This is normal for the first preview or after cleanup)"
+            echo "ℹ No artifacts API access or no artifacts found"
+          fi
+          
+          # Método alternativo: tentar download direto do último deployment
+          echo "🔄 Trying alternative: download from deployed site..."
+          
+          # Lista o que tem no site atual (se algo)
+          SITE_CHECK=$(curl -s -I "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" | head -1)
+          echo "Site status: $SITE_CHECK"
+          
+          if echo "$SITE_CHECK" | grep -q "200 OK"; then
+            # Se retorna 200, tenta baixar via recursive com foco em diretórios pr-*
+            echo "📥 Site is accessible, downloading existing previews..."
+            
+            BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+            
+            # Estratégia: tentar baixar estruturas conhecidas baseado no padrão dos PRs
+            # Como sabemos que os previews ficam em /$repo_name/pr-$number/
+            
+            # Lista possíveis repositórios e PRs (números comuns)
+            for repo in $(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2); do
+              for pr in {1..20}; do  # tenta PRs 1-20 (ajuste conforme necessário)
+                PR_URL="$BASE_URL/$repo/pr-$pr/"
+                PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PR_URL" 2>/dev/null || echo "000")
+                
+                if [ "$PR_STATUS" = "200" ]; then
+                  echo "✅ Found existing preview: $repo/pr-$pr"
+                  
+                  # Baixa este preview específico
+                  mkdir -p "./public/$repo/pr-$pr"
+                  wget --recursive \
+                       --level=2 \
+                       --no-parent \
+                       --no-host-directories \
+                       --cut-dirs=3 \
+                       --directory-prefix="./public/$repo/pr-$pr" \
+                       --quiet \
+                       --tries=1 \
+                       --timeout=10 \
+                       "$PR_URL" || echo "Failed to download $repo/pr-$pr"
+                fi
+              done
+            done
+          else
+            echo "ℹ No accessible site found - fresh deployment"
           fi
           
           echo "=== Content status ==="
           TOTAL_FILES=$(find ./public -type f 2>/dev/null | wc -l)
-          echo "Total files downloaded: $TOTAL_FILES"
+          echo "Total files preserved: $TOTAL_FILES"
           
-          if [ "$TOTAL_FILES" -gt 1 ]; then
-            echo "✅ Existing content preserved"
+          if [ "$TOTAL_FILES" -gt 0 ]; then
+            echo "✅ Existing content preserved:"
             find ./public -type d -name "pr-*" 2>/dev/null | sort || echo "No existing previews"
           else
             echo "📝 No existing content found - fresh start"
@@ -131,7 +136,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
-          retention-days: 30
+          retention-days: 1
           name: github-pages
 
       - name: Configure Pages
