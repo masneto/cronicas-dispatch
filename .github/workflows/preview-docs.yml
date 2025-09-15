@@ -53,33 +53,28 @@ jobs:
               
               # Remove trailing slash para construir URL correta
               PAGES_BASE_URL=$(echo "$PAGES_URL" | sed 's/\/$//')
-              echo "Base URL: $PAGES_BASE_URL"
               
-              # Debug: vamos ver o que tem na página
-              echo "=== Page content preview ==="
-              curl -s "$PAGES_BASE_URL/" | head -10 || echo "Failed to preview page"
-              
-              echo "=== Attempting wget download ==="
-              # Baixa conteúdo existente COM output para debug
-              wget --recursive \
-                   --level=3 \
-                   --no-parent \
-                   --no-host-directories \
-                   --cut-dirs=1 \
-                   --directory-prefix=./public \
-                   --no-check-certificate \
-                   --retry-connrefused \
-                   --tries=2 \
-                   --timeout=15 \
-                   --user-agent="GitHub-Actions-Deploy" \
-                   --accept="*" \
-                   --reject="robots.txt" \
-                   --progress=dot:giga \
-                   "$PAGES_BASE_URL/"
-              
-              echo "=== Wget completed, checking results ==="
-              ls -la ./public/ || echo "Public directory empty"
-              find ./public -type f | head -10 || echo "No files found"
+              # Verifica se é uma página 404 do GitHub Pages
+              PAGE_CONTENT=$(curl -s "$PAGES_BASE_URL/" | head -5)
+              if echo "$PAGE_CONTENT" | grep -q "Page not found.*GitHub Pages"; then
+                echo "ℹ GitHub Pages is active but shows 'Page not found' - no existing content to preserve"
+              else
+                echo "📥 Found existing content - downloading..."
+                
+                # Baixa conteúdo existente
+                wget --recursive \
+                     --level=3 \
+                     --no-parent \
+                     --no-host-directories \
+                     --cut-dirs=1 \
+                     --directory-prefix=./public \
+                     --no-check-certificate \
+                     --tries=2 \
+                     --timeout=15 \
+                     --user-agent="GitHub-Actions-Deploy" \
+                     --quiet \
+                     "$PAGES_BASE_URL/" || echo "⚠ Download failed"
+              fi
             else
               echo "⚠ Pages not accessible (HTTP $HTTP_STATUS) - creating fresh deployment"
             fi
