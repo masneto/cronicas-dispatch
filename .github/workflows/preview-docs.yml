@@ -19,14 +19,6 @@ jobs:
       - name: Checkout repo B
         uses: actions/checkout@v4
 
-      # Baixa o artifact atual do GitHub Pages (se existir)
-      - name: Download existing GitHub Pages
-        uses: actions/download-artifact@v4
-        with:
-          name: github-pages
-          path: ./public
-        continue-on-error: true
-
       # Se não existir, cria estrutura vazia
       - name: Initialize public directory
         run: |
@@ -60,7 +52,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
-          retention-days: 30
+          retention-days: 1
           name: github-pages
 
       - name: Configure Pages
