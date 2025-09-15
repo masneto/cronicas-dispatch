@@ -30,8 +30,8 @@ jobs:
 
       - name: Move site to PR subdir
         run: |
-          mkdir -p ./public/pr-${{ github.event.client_payload.pr_number }}
-          cp -r ./site/* ./public/pr-${{ github.event.client_payload.pr_number }}/
+          mkdir -p ./public/${{ github.event.client_payload.artifact_repo }}/pr-${{ github.event.client_payload.pr_number }}
+          cp -r ./site/* ./public/${{ github.event.client_payload.artifact_repo }}/pr-${{ github.event.client_payload.pr_number }}/
 
       - name: Upload github-pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -39,13 +39,6 @@ jobs:
           path: ./public
           retention-days: 1
           name: github-pages-pr-${{ github.event.client_payload.pr_number }}          
-
-      # - name: Upload static files as artifact
-      #   uses: actions/upload-pages-artifact@v3
-      #   with:
-      #     path: ./site
-      #     name: github-pages-pr-${{ github.event.client_payload.pr_number }}
-      #     retention-days: 1
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
