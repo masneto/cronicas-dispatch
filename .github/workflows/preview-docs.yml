@@ -13,10 +13,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: gh-pages  # sempre usa a branch que está servindo o Pages
+
+      - name: Setup git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -27,7 +33,7 @@ jobs:
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: Move PR preview
+      - name: Copy PR content
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
           TARGET_DIR="./$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}"
@@ -35,7 +41,7 @@ jobs:
           cp -r ./temp-preview/* "$TARGET_DIR/"
           rm -rf ./temp-preview
 
-      - name: Generate index.html
+      - name: Update index.html with all PRs
         run: |
           TEMPLATE=index.template.html
           OUTPUT=index.html
@@ -52,19 +58,16 @@ jobs:
 
           sed "s|<!-- PR_PLACEHOLDER -->|$PR_CARDS|g" $TEMPLATE > $OUTPUT
 
-      - name: Deploy to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./
-          name: github-pages-pr-${{ github.event.client_payload.pr_number }}
-          retention-days: 1
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Commit & push changes
+        run: |
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes detected, skipping commit"
+          else
+            git commit -m "Update preview for PR #${{ github.event.client_payload.pr_number }}"
+            git push origin gh-pages
 
       - name: Deploy Pages
-        id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
-          preview: true
+          artifact_name: github-pages-artifact
