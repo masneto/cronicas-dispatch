@@ -16,6 +16,7 @@ jobs:
     
     steps:
       - name: Set variables and check GitHub Pages status
+        id: check_status
         run: |
           REPO_NAME=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
           PR_NUM="${{ github.event.client_payload.pr_number }}"
@@ -23,6 +24,10 @@ jobs:
           echo "Repository: $REPO_NAME"
           echo "PR Number: $PR_NUM"
           echo "Preview path: $REPO_NAME/pr-$PR_NUM/"
+          
+          # Export para próximos steps
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          echo "PR_NUM=$PR_NUM" >> $GITHUB_ENV
           
           echo "Checking if GitHub Pages is active..."
           PAGES_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -42,21 +47,91 @@ jobs:
             echo "Preview URL status: $STATUS"
             
             if [ "$STATUS" = "200" ]; then
-              echo "⚠ Preview ainda está ativo. Será removido no próximo deploy."
+              echo "⚠ Preview encontrado - será removido agora."
+              echo "needs_removal=true" >> $GITHUB_OUTPUT
             else
               echo "✓ Preview já não está acessível."
+              echo "needs_removal=false" >> $GITHUB_OUTPUT
             fi
           else
             echo "ℹ No GitHub Pages deployment found."
+            echo "needs_removal=false" >> $GITHUB_OUTPUT
           fi
-      
-      - name: Comment on PR about cleanup intent
+
+      # Baixa o site atual do GitHub Pages via wget/curl
+      - name: Download current GitHub Pages content
+        if: steps.check_status.outputs.needs_removal == 'true'
         run: |
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          echo "Downloading content from: $PAGES_URL"
+          
+          # Cria diretório para o download
+          mkdir -p ./current-site
+          
+          # Baixa o site atual usando wget com mirror
+          wget --mirror --no-parent --no-host-directories \
+               --cut-dirs=1 --reject-regex=".*\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)(\?.*)?$" \
+               --directory-prefix=./current-site \
+               --quiet \
+               "$PAGES_URL/" || echo "Download completed with some errors (normal)"
+          
+          echo "=== Current site structure ==="
+          find ./current-site -type d | head -20
+
+      # Remove a pasta do PR específico
+      - name: Remove PR preview from downloaded content
+        if: steps.check_status.outputs.needs_removal == 'true'
+        run: |
+          TARGET_DIR="./current-site/${{ env.REPO_NAME }}/pr-${{ env.PR_NUM }}"
+          REPO_DIR="./current-site/${{ env.REPO_NAME }}"
+          
+          echo "Target directory to remove: $TARGET_DIR"
+          
+          if [ -d "$TARGET_DIR" ]; then
+            echo "✓ Removing preview directory: $TARGET_DIR"
+            rm -rf "$TARGET_DIR"
+            echo "✓ Successfully removed $TARGET_DIR"
+            
+            # Remove pasta do repo se estiver vazia
+            if [ -d "$REPO_DIR" ] && [ -z "$(ls -A "$REPO_DIR" 2>/dev/null)" ]; then
+              echo "✓ Removing empty repository folder: $REPO_DIR"
+              rmdir "$REPO_DIR"
+            fi
+          else
+            echo "⚠ Directory $TARGET_DIR not found in downloaded content"
+          fi
+          
+          echo "=== Final site structure ==="
+          find ./current-site -type d | head -20
+
+      # Faz upload e deploy do conteúdo atualizado
+      - name: Upload updated GitHub Pages
+        if: steps.check_status.outputs.needs_removal == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./current-site
+          name: github-pages
+          retention-days: 30
+      
+      - name: Deploy updated pages
+        if: steps.check_status.outputs.needs_removal == 'true'
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages
+      
+      - name: Comment on PR about cleanup
+        run: |
+          if [ "${{ steps.check_status.outputs.needs_removal }}" = "true" ]; then
+            MESSAGE="🧹 Preview removido com sucesso!"
+          else
+            MESSAGE="🤷 Nenhum preview encontrado para remover."
+          fi
+          
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d '{"body":"🧹 Preview cleanup executado. O preview será removido no próximo deploy de preview."}'
+            -d "{\"body\":\"$MESSAGE\"}"
       
       - name: Cleanup complete
         run: |
