@@ -19,6 +19,22 @@ jobs:
       - name: Checkout repo B
         uses: actions/checkout@v4
 
+      # Baixa o artifact atual do GitHub Pages (se existir)
+      - name: Download existing GitHub Pages
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: ./public
+        continue-on-error: true
+
+      # Se não existir, cria estrutura vazia
+      - name: Initialize public directory
+        run: |
+          if [ ! -d "./public" ]; then
+            mkdir -p ./public
+            echo "Created empty public directory"
+          fi
+
       - name: Download artifact from repo A
         uses: actions/download-artifact@v4
         with:
@@ -31,15 +47,21 @@ jobs:
       - name: Move site to PR subdir
         run: |
           repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
-          mkdir -p ./public/$repo_name/pr-${{ github.event.client_payload.pr_number }}
-          cp -r ./site/* ./public/$repo_name/pr-${{ github.event.client_payload.pr_number }}/
+          target_dir="./public/$repo_name/pr-${{ github.event.client_payload.pr_number }}"
+          
+          echo "Creating directory: $target_dir"
+          mkdir -p "$target_dir"
+          cp -r ./site/* "$target_dir/"
+          
+          echo "=== Final structure ==="
+          find ./public -type d | head -10
 
       - name: Upload github-pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
-          retention-days: 1
-          name: github-pages-pr-${{ github.event.client_payload.pr_number }}          
+          retention-days: 30
+          name: github-pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -48,16 +70,16 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          artifact_name: github-pages
           preview: true
       
-      - run: |
-          echo "Page URL: ${{ steps.deployment.outputs.page_url }}"
-
       - name: Comment on PR in repo de origem
         run: |
+          repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
+          preview_url="${{ steps.deployment.outputs.page_url }}$repo_name/pr-${{ github.event.client_payload.pr_number }}/"
+          
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d '{"body":"Preview disponível: ${{ steps.deployment.outputs.page_url }}pr-${{ github.event.client_payload.pr_number }}"}'
+            -d "{\"body\":\"🚀 Preview disponível: $preview_url\"}"
