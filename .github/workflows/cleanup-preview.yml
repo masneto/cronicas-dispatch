@@ -23,7 +23,8 @@ jobs:
 
       - name: Remove PR preview folder
         run: |
-          rm -rf ./public/${{ github.event.client_payload.artifact_repo }}/pr-${{ github.event.client_payload.pr_number }}
+          repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
+          rm -rf ./public/$repo_name/pr-${{ github.event.client_payload.pr_number }}
 
       - name: Commit and push changes
         run: |
