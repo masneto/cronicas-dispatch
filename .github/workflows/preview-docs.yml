@@ -28,15 +28,19 @@ jobs:
 
       - name: Create gh-pages if missing
         run: |
-          if ! git show-ref --verify --quiet refs/heads/gh-pages; then
+          git fetch origin gh-pages:gh-pages || true
+
+          if git show-ref --verify --quiet refs/heads/gh-pages; then
+            echo "✅ gh-pages exists, checking out..."
+            git checkout gh-pages
+          else
+            echo "📝 Creating gh-pages branch"
             git checkout --orphan gh-pages
             git rm -rf . || true
             echo "" > index.html
             git add index.html
             git commit -m "Initialize gh-pages branch"
             git push origin gh-pages
-          else
-            git checkout gh-pages
           fi
 
       - name: Download PR artifact
