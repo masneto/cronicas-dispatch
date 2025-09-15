@@ -16,16 +16,18 @@ jobs:
       name: github-pages
 
     steps:
-      - name: Download Pages artifact
-        uses: actions/download-pages-artifact@v3
-        with:
-          path: ./public
-          name: github-pages-pr-${{ github.event.client_payload.pr_number }}
-
-      - name: Remove PR preview folder
+      - name: Set variables
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
-          TARGET_DIR="./public/$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}"
+          PR_NUM="${{ github.event.client_payload.pr_number }}"
+          TARGET_DIR="./public/$REPO_NAME/pr-$PR_NUM"
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          echo "PR_NUM=$PR_NUM" >> $GITHUB_ENV
+          echo "TARGET_DIR=$TARGET_DIR" >> $GITHUB_ENV
+          echo "Will remove: $TARGET_DIR"
+
+      - name: Remove PR preview folder if exists
+        run: |
           if [ -d "$TARGET_DIR" ]; then
             echo "Removing PR preview folder: $TARGET_DIR"
             rm -rf "$TARGET_DIR"
@@ -33,15 +35,14 @@ jobs:
             echo "Folder $TARGET_DIR does not exist, nothing to remove."
           fi
 
-      - name: Upload cleaned artifact
+      - name: Upload updated artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
           name: github-pages-pr-${{ github.event.client_payload.pr_number }}
           retention-days: 1
 
-      - name: Deploy Pages Preview
-        id: deployment
+      - name: Deploy updated Pages
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
