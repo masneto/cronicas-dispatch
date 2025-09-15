@@ -26,6 +26,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Create gh-pages if missing
+        run: |
+          git fetch origin gh-pages:gh-pages || true
+
+          if git show-ref --verify --quiet refs/heads/gh-pages; then
+            echo "✅ gh-pages exists, checking out..."
+            git checkout gh-pages
+          else
+            echo "📝 Creating gh-pages branch"
+            git checkout --orphan gh-pages
+            git rm -rf . || true
+            echo "" > index.html
+            git add index.html
+            git commit -m "Initialize gh-pages branch"
+            git push origin gh-pages
+          fi
+
       - name: Remove specific PR preview
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
