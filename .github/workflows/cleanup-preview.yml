@@ -20,7 +20,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
       
-      # Baixa o artifact atual do GitHub Pages (último deployment)
+      # Sempre cria a estrutura public primeiro
+      - name: Initialize public directory
+        run: |
+          mkdir -p ./public
+          echo "Initialized public directory"
+
+      # Tenta baixar o artifact atual do GitHub Pages
       - name: Download current GitHub Pages
         uses: actions/download-artifact@v4
         with:
@@ -28,13 +34,13 @@ jobs:
           path: ./public
         continue-on-error: true
       
-      # Se não encontrou o artifact principal, tenta os artifacts específicos de PR
-      - name: List available artifacts for debugging
-        if: failure()
+      - name: Handle artifact download result
         run: |
-          echo "Failed to download main github-pages artifact"
-          echo "This might be expected if using PR-specific artifacts"
-          mkdir -p ./public
+          if [ $? -eq 0 ]; then
+            echo "✓ Successfully downloaded existing github-pages artifact"
+          else
+            echo "⚠ No existing github-pages artifact found (this is normal for first run)"
+          fi
       
       - name: Remove PR preview folder
         run: |
@@ -70,17 +76,34 @@ jobs:
           echo "=== Final structure ==="
           find ./public -type d 2>/dev/null | head -20 || echo "No directories found"
       
+      - name: Check if there's content to upload
+        run: |
+          if [ "$(ls -A ./public 2>/dev/null)" ]; then
+            echo "HAS_CONTENT=true" >> $GITHUB_ENV
+            echo "✓ Found content in public directory"
+          else
+            echo "HAS_CONTENT=false" >> $GITHUB_ENV
+            echo "⚠ No content found in public directory"
+          fi
+
       - name: Upload updated GitHub Pages
+        if: env.HAS_CONTENT == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
           name: github-pages
-          retention-days: 30
+          retention-days: 1
       
       - name: Deploy updated pages
+        if: env.HAS_CONTENT == 'true'
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages
+      
+      - name: Skip deployment if no content
+        if: env.HAS_CONTENT == 'false'
+        run: |
+          echo "🤷 No content to deploy - this is normal if no previews exist yet"
       
       - name: Comment on PR about cleanup
         run: |
