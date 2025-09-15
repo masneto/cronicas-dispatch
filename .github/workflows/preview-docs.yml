@@ -29,51 +29,65 @@ jobs:
         run: |
           echo "🔄 Attempting to preserve existing previews..."
           
-          # Verifica se GitHub Pages está ativo
+          # Verifica se GitHub Pages está ativo via API
           PAGES_INFO=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/pages" || echo "{}")
+            "https://api.github.com/repos/${{ github.repository }}/pages" 2>/dev/null || echo "{}")
           
-          PAGES_URL=$(echo "$PAGES_INFO" | jq -r '.html_url // "none"')
+          PAGES_URL=$(echo "$PAGES_INFO" | jq -r '.html_url // "none"' 2>/dev/null || echo "none")
+          PAGES_STATUS=$(echo "$PAGES_INFO" | jq -r '.status // "none"' 2>/dev/null || echo "none")
+          
           echo "GitHub Pages URL: $PAGES_URL"
+          echo "GitHub Pages Status: $PAGES_STATUS"
           
           mkdir -p ./public
           
-          if [ "$PAGES_URL" != "none" ] && [ "$PAGES_URL" != "null" ]; then
-            echo "📥 Downloading existing content from: $PAGES_URL"
+          if [ "$PAGES_URL" != "none" ] && [ "$PAGES_URL" != "null" ] && [ "$PAGES_STATUS" = "built" ]; then
+            echo "📥 GitHub Pages is active - downloading existing content..."
             
-            # Remove trailing slash para construir URL correta
-            PAGES_BASE_URL=$(echo "$PAGES_URL" | sed 's/\/$//')
+            # Testa se a URL responde antes de tentar wget
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PAGES_URL" 2>/dev/null || echo "000")
+            echo "Pages HTTP Status: $HTTP_STATUS"
             
-            # Baixa conteúdo existente com mais flags para garantir sucesso
-            wget --recursive \
-                 --no-parent \
-                 --no-host-directories \
-                 --cut-dirs=1 \
-                 --directory-prefix=./public \
-                 --no-check-certificate \
-                 --retry-connrefused \
-                 --tries=3 \
-                 --timeout=30 \
-                 --user-agent="GitHub-Actions-Deploy" \
-                 --accept="*" \
-                 --reject="robots.txt" \
-                 "$PAGES_BASE_URL/" || echo "⚠ Download failed or no content found"
-            
-            # Tenta método alternativo se wget falhou
-            if [ ! "$(ls -A ./public 2>/dev/null)" ]; then
-              echo "🔄 Trying alternative download method..."
-              curl -s "$PAGES_BASE_URL/" > ./public/index.html || echo "Curl also failed"
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Pages accessible - downloading content..."
+              
+              # Remove trailing slash para construir URL correta
+              PAGES_BASE_URL=$(echo "$PAGES_URL" | sed 's/\/$//')
+              
+              # Baixa conteúdo existente
+              wget --recursive \
+                   --level=5 \
+                   --no-parent \
+                   --no-host-directories \
+                   --cut-dirs=1 \
+                   --directory-prefix=./public \
+                   --no-check-certificate \
+                   --retry-connrefused \
+                   --tries=2 \
+                   --timeout=15 \
+                   --user-agent="GitHub-Actions-Deploy" \
+                   --accept="*" \
+                   --reject="robots.txt" \
+                   --no-verbose \
+                   "$PAGES_BASE_URL/" 2>/dev/null || echo "⚠ Download failed"
+            else
+              echo "⚠ Pages not accessible (HTTP $HTTP_STATUS) - creating fresh deployment"
             fi
           else
-            echo "📝 No existing GitHub Pages deployment found - creating first deployment"
+            echo "ℹ No active GitHub Pages deployment found - creating first deployment"
+            echo "  (This is normal for the first preview or after cleanup)"
           fi
           
-          echo "=== Content downloaded ==="
-          find ./public -type f 2>/dev/null | wc -l | xargs echo "Total files:"
-          find ./public -type d 2>/dev/null | sort | head -20 || echo "No directories"
+          echo "=== Content status ==="
+          TOTAL_FILES=$(find ./public -type f 2>/dev/null | wc -l)
+          echo "Total files downloaded: $TOTAL_FILES"
           
-          echo "=== Existing previews found ==="
-          find ./public -type d -name "pr-*" 2>/dev/null | sort || echo "No existing previews"
+          if [ "$TOTAL_FILES" -gt 1 ]; then
+            echo "✅ Existing content preserved"
+            find ./public -type d -name "pr-*" 2>/dev/null | sort || echo "No existing previews"
+          else
+            echo "📝 No existing content found - fresh start"
+          fi
 
       - name: Download artifact from repo A
         uses: actions/download-artifact@v4
@@ -112,7 +126,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
-          retention-days: 30
+          retention-days: 1
           name: github-pages
 
       - name: Configure Pages
