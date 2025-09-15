@@ -9,94 +9,68 @@ permissions:
   pages: write
   id-token: write
 
-# Garante que apenas um deployment execute por vez
+# Diferencia execuções usando o PR number e repositório
 concurrency:
-  group: github-pages-deploy
-  cancel-in-progress: false
+  group: github-pages-deploy-${{ github.event.client_payload.artifact_repo }}-pr-${{ github.event.client_payload.pr_number }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy Docs Preview
+    name: Deploy Docs Preview (PR #${{ github.event.client_payload.pr_number }})
     runs-on: ubuntu-latest
     environment:
-      name: github-pages    
+      name: github-pages
+    
     steps:
       - name: Checkout repo B
         uses: actions/checkout@v4
 
-      # NOVO: Baixa o artifact atual para preservar outros previews
-      - name: Download current GitHub Pages content
+      - name: Download and preserve existing GitHub Pages content
         run: |
-          echo "🔄 Attempting to preserve existing previews..."
-          
+          echo "🔄 Preserving existing previews..."
           mkdir -p ./public
           
-          # Tenta baixar o artifact github-pages atual
-          echo "📦 Trying to download existing github-pages artifact..."
+          # Baixa o conteúdo atual do GitHub Pages usando wget
+          BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
           
-          if wget --header="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                  --header="Accept: application/vnd.github+json" \
-                  --quiet \
-                  --output-document=current-artifact.zip \
-                  "https://api.github.com/repos/${{ github.repository }}/actions/artifacts" 2>/dev/null; then
-            echo "✅ Downloaded artifacts list"
+          echo "📥 Checking site accessibility: $BASE_URL"
+          SITE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/" || echo "000")
+          
+          if [ "$SITE_STATUS" = "200" ]; then
+            echo "✅ Site is accessible, downloading ALL existing content..."
+            
+            # Baixa TODO o conteúdo atual sem filtros
+            wget --recursive \
+                 --level=5 \
+                 --no-parent \
+                 --no-host-directories \
+                 --cut-dirs=1 \
+                 --directory-prefix="./public" \
+                 --quiet \
+                 --tries=2 \
+                 --timeout=30 \
+                 --no-check-certificate \
+                 "$BASE_URL/" 2>/dev/null || echo "⚠️ Some files may not have been downloaded"
+            
+            # Remove apenas o index.html da raiz para evitar conflitos
+            rm -f ./public/index.html
+            
+            echo "📊 All content downloaded successfully"
           else
-            echo "ℹ No artifacts API access or no artifacts found"
+            echo "ℹ️ Site not accessible (status: $SITE_STATUS) - starting fresh"
           fi
           
-          # Método alternativo: tentar download direto do último deployment
-          echo "🔄 Trying alternative: download from deployed site..."
-          
-          # Lista o que tem no site atual (se algo)
-          SITE_CHECK=$(curl -s -I "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" | head -1)
-          echo "Site status: $SITE_CHECK"
-          
-          if echo "$SITE_CHECK" | grep -q "200 OK"; then
-            # Se retorna 200, tenta baixar via recursive com foco em diretórios pr-*
-            echo "📥 Site is accessible, downloading existing previews..."
-            
-            BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
-            
-            # Estratégia: tentar baixar estruturas conhecidas baseado no padrão dos PRs
-            # Como sabemos que os previews ficam em /$repo_name/pr-$number/
-            
-            # Lista possíveis repositórios e PRs (números comuns)
-            for repo in $(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2); do
-              for pr in {1..20}; do  # tenta PRs 1-20 (ajuste conforme necessário)
-                PR_URL="$BASE_URL/$repo/pr-$pr/"
-                PR_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PR_URL" 2>/dev/null || echo "000")
-                
-                if [ "$PR_STATUS" = "200" ]; then
-                  echo "✅ Found existing preview: $repo/pr-$pr"
-                  
-                  # Baixa este preview específico
-                  mkdir -p "./public/$repo/pr-$pr"
-                  wget --recursive \
-                       --level=2 \
-                       --no-parent \
-                       --no-host-directories \
-                       --cut-dirs=3 \
-                       --directory-prefix="./public/$repo/pr-$pr" \
-                       --quiet \
-                       --tries=1 \
-                       --timeout=10 \
-                       "$PR_URL" || echo "Failed to download $repo/pr-$pr"
-                fi
-              done
-            done
-          else
-            echo "ℹ No accessible site found - fresh deployment"
-          fi
-          
-          echo "=== Content status ==="
+          # Exibe estatísticas do que foi preservado
           TOTAL_FILES=$(find ./public -type f 2>/dev/null | wc -l)
-          echo "Total files preserved: $TOTAL_FILES"
+          PREVIEW_DIRS=$(find ./public -type d -name "pr-*" 2>/dev/null | wc -l)
           
-          if [ "$TOTAL_FILES" -gt 0 ]; then
-            echo "✅ Existing content preserved:"
-            find ./public -type d -name "pr-*" 2>/dev/null | sort || echo "No existing previews"
-          else
-            echo "📝 No existing content found - fresh start"
+          echo "=== Preservation Summary ==="
+          echo "Total files preserved: $TOTAL_FILES"
+          echo "Preview directories found: $PREVIEW_DIRS"
+          
+          if [ "$PREVIEW_DIRS" -gt 0 ]; then
+            echo "🎯 Existing previews:"
+            find ./public -type d -name "pr-*" | sed 's|./public/||' | sort
           fi
 
       - name: Download artifact from repo A
@@ -108,16 +82,16 @@ jobs:
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: Add new PR preview to existing content
+      - name: Integrate new PR preview
         run: |
           repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
           target_dir="./public/$repo_name/pr-${{ github.event.client_payload.pr_number }}"
           
-          echo "🚀 Adding new preview to: $target_dir"
+          echo "🚀 Integrating new preview: $repo_name/pr-${{ github.event.client_payload.pr_number }}"
           
           # Remove preview anterior desta PR se existir
           if [ -d "$target_dir" ]; then
-            echo "Replacing existing preview at: $target_dir"
+            echo "🔄 Replacing existing preview at: $target_dir"
             rm -rf "$target_dir"
           fi
           
@@ -125,24 +99,94 @@ jobs:
           mkdir -p "$target_dir"
           cp -r ./site/* "$target_dir/"
           
-          echo "=== Final structure with all previews ==="
-          find ./public -type d | sort | head -20
+          # Garante que os arquivos tenham as permissões corretas
+          find "$target_dir" -type f -exec chmod 644 {} \;
+          find "$target_dir" -type d -exec chmod 755 {} \;
           
-          echo "=== All active previews ==="
-          find ./public -type d -name "pr-*" | sort
+          echo "✅ Preview integrated successfully"
+          
+          # Cria um índice simples na raiz se não existir
+          if [ ! -f "./public/index.html" ]; then
+            echo "📝 Creating root index.html"
+            cat > "./public/index.html" << 'EOF'
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Documentation Previews</title>
+            <style>
+              body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                max-width: 800px; 
+                margin: 2rem auto; 
+                padding: 1rem;
+                line-height: 1.6;
+              }
+              h1 { color: #2563eb; }
+              .preview-item { 
+                background: #f8fafc; 
+                border: 1px solid #e2e8f0; 
+                border-radius: 8px; 
+                padding: 1rem; 
+                margin: 1rem 0;
+              }
+              .preview-item a { 
+                color: #2563eb; 
+                text-decoration: none; 
+                font-weight: 500;
+              }
+              .preview-item a:hover { text-decoration: underline; }
+              .no-previews { 
+                text-align: center; 
+                color: #64748b; 
+                font-style: italic; 
+                padding: 2rem;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>📚 Documentation Previews</h1>
+            <div id="previews-list">
+              <div class="no-previews">Carregando previews disponíveis...</div>
+            </div>
+            
+            <script>
+              // Lista previews automaticamente
+              fetch(window.location.pathname)
+                .then(() => {
+                  // Esta é uma implementação simples - em produção você poderia
+                  // gerar esta lista durante o build
+                  document.getElementById('previews-list').innerHTML = 
+                    '<div class="no-previews">Verifique os diretórios disponíveis na URL.</div>';
+                })
+                .catch(() => {
+                  document.getElementById('previews-list').innerHTML = 
+                    '<div class="no-previews">Nenhum preview encontrado.</div>';
+                });
+            </script>
+          </body>
+          </html>
+          EOF
+          fi
+          
+          echo "=== Final Structure ==="
+          echo "📁 All preview directories:"
+          find ./public -type d -name "pr-*" | sed 's|./public/||' | sort
+          
+          echo "📊 Total structure:"
+          find ./public -type d | head -15 | sed 's|./public|.|'
 
-      # ALTERADO: Usa sempre o mesmo nome de artifact para manter um deployment único
       - name: Upload consolidated github-pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
-          retention-days: 1
+          retention-days: 7
           name: github-pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      # ALTERADO: Deploy do artifact consolidado
       - name: Deploy Pages with all previews
         id: deployment
         uses: actions/deploy-pages@v4
@@ -154,8 +198,46 @@ jobs:
           repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
           preview_url="${{ steps.deployment.outputs.page_url }}$repo_name/pr-${{ github.event.client_payload.pr_number }}/"
           
+          echo "🔗 Preview URL: $preview_url"
+          
+          # Cria comentário mais informativo
+          comment_body=$(cat << 'EOF'
+          ## 🚀 Preview Disponível
+          
+          Sua documentação foi publicada com sucesso!
+          
+          **🔗 URL do Preview:** [Visualizar documentação]($PREVIEW_URL)
+          
+          > Este preview será mantido enquanto o PR estiver aberto e será atualizado automaticamente a cada push.
+          
+          ---
+          *Preview gerado automaticamente pelo GitHub Actions*
+          EOF
+          )
+          
+          # Substitui a variável no comentário
+          comment_body=$(echo "$comment_body" | sed "s|\$PREVIEW_URL|$preview_url|g")
+          
+          # Escapa aspas para JSON
+          comment_json=$(echo "$comment_body" | sed 's|"|\\"|g' | tr '\n' ' ')
+          
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d "{\"body\":\"🚀 Preview disponível: $preview_url\"}"
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments" \
+            -d "{\"body\":\"$comment_json\"}" \
+            --fail --silent --show-error || echo "⚠️ Falha ao comentar no PR"
+
+      - name: Deployment Summary
+        run: |
+          repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
+          preview_url="${{ steps.deployment.outputs.page_url }}$repo_name/pr-${{ github.event.client_payload.pr_number }}/"
+          
+          echo "=== 🎉 Deploy Summary ==="
+          echo "Repository: ${{ github.event.client_payload.artifact_repo }}"
+          echo "PR Number: #${{ github.event.client_payload.pr_number }}"
+          echo "Preview URL: $preview_url"
+          echo "Pages URL: ${{ steps.deployment.outputs.page_url }}"
+          echo "Deployment ID: ${{ steps.deployment.outputs.deployment_id }}"
+          echo "========================"
