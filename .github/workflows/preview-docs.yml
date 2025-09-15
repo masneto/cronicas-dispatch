@@ -1,5 +1,5 @@
 name: Deploy Docs Preview
-run-name: 'Deploy Docs Preview for PR ${{ github.event.client_payload.artifact_repo }}${{ github.event.client_payload.pr_number }}'
+run-name: 'Deploy Docs Preview for Repository ${{ github.event.client_payload.artifact_repo }} PR #${{ github.event.client_payload.pr_number }}'
 
 on:
   repository_dispatch:
@@ -60,11 +60,38 @@ jobs:
           cp -r ./temp-preview/* "$TARGET_DIR/"
           rm -rf ./temp-preview
 
-      - name: Copy template index.html from main
+      - name: Copy template index.html from main if missing
         run: |
           git fetch origin main:index-template
           git checkout index-template -- index.template.html
-          cp index.template.html index.html
+          if [ ! -f index.html ]; then
+            cp index.template.html index.html
+          fi
+
+      - name: Update index.html with current PRs
+        run: |
+          TEMPLATE=index.template.html
+          INDEX=index.html
+          REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
+          PR_NUM=${{ github.event.client_payload.pr_number }}
+
+          if grep -q '<!-- PR_PLACEHOLDER -->' $INDEX; then
+            PR_BLOCK=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX)
+            # Remove bloco antigo
+            sed -i '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/d' $INDEX
+          else
+            PR_BLOCK=""
+          fi
+
+          NEW_PR="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
+
+          echo "<!-- PR_PLACEHOLDER -->" > tmp_block.html
+          echo "$PR_BLOCK" | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->' >> tmp_block.html
+          echo "$NEW_PR" >> tmp_block.html
+          echo "<!-- END_PR_PLACEHOLDER -->" >> tmp_block.html
+
+          sed -i "/<div class=\"grid\">/r tmp_block.html" $INDEX
+          rm tmp_block.html
 
       - name: Commit updates to gh-pages
         run: |
@@ -89,9 +116,4 @@ jobs:
       - name: Comment PR with preview link
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
-          PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}/"
-          curl -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d "{\"body\":\"🚀 **Preview disponível!**\\n\\n📖 **Documentação:** $PREVIEW_URL\"}"
+          PREVIEW_URL="https://${{ github.repository_ow
