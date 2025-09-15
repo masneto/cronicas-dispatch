@@ -1,4 +1,5 @@
 name: Deploy Docs Preview
+
 on:
   repository_dispatch:
     types: [pr-preview]
@@ -12,34 +13,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout with history
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: gh-pages
-      
-      - name: Setup git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-      
-      - name: Create or switch to gh-pages branch
-        run: |
-          # Cria gh-pages se não existir
-          if ! git show-ref --verify --quiet refs/heads/gh-pages; then
-            echo "📝 Creating gh-pages branch"
-            git checkout --orphan gh-pages
-            git rm -rf . || true
-            echo "<h1>Documentation Previews</h1>" > index.html
-            git add index.html
-            git commit -m "Initial commit"
-            git push origin gh-pages
-          else
-            echo "✅ Switching to existing gh-pages branch"
-            git checkout gh-pages
-          fi
-      
-      - name: Download new preview
+
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: pr-${{ github.event.client_payload.pr_number }}
@@ -47,123 +26,45 @@ jobs:
           repository: ${{ github.event.client_payload.artifact_repo }}
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
-      
-      - name: Update preview in gh-pages branch
+
+      - name: Move PR preview
         run: |
-          repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
-          preview_dir="$repo_name/pr-${{ github.event.client_payload.pr_number }}"
-          
-          echo "🚀 Updating preview at: $preview_dir"
-          
-          # Remove preview antigo
-          rm -rf "$preview_dir"
-          
-          # Adiciona novo preview
-          mkdir -p "$preview_dir"
-          cp -r ./temp-preview/* "$preview_dir/"
+          REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
+          TARGET_DIR="./$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}"
+          mkdir -p "$TARGET_DIR"
+          cp -r ./temp-preview/* "$TARGET_DIR/"
           rm -rf ./temp-preview
-          
-          # Atualiza index na raiz
-          echo "📋 Updating main index..."
-          cat > index.html << 'EOF'
-          <!DOCTYPE html>
-          <html lang="pt-BR">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Documentation Previews</title>
-            <style>
-              body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                max-width: 1000px; 
-                margin: 2rem auto; 
-                padding: 1rem;
-                background: #fafafa;
-              }
-              h1 { color: #2563eb; text-align: center; }
-              .container { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-              .preview-grid { display: grid; gap: 1rem; margin-top: 2rem; }
-              .preview-card { 
-                background: #f8fafc; 
-                border: 1px solid #e2e8f0; 
-                border-radius: 8px; 
-                padding: 1.5rem;
-                transition: transform 0.2s, box-shadow 0.2s;
-              }
-              .preview-card:hover { 
-                transform: translateY(-2px); 
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-              }
-              .preview-card h3 { 
-                color: #1e293b; 
-                margin: 0 0 0.5rem 0; 
-                font-size: 1.25rem;
-              }
-              .preview-card a { 
-                color: #2563eb; 
-                text-decoration: none; 
-                font-weight: 500;
-              }
-              .preview-card a:hover { text-decoration: underline; }
-              .meta { 
-                color: #64748b; 
-                font-size: 0.9rem; 
-                margin: 0.5rem 0;
-              }
-              .badge { 
-                background: #dbeafe; 
-                color: #1d4ed8; 
-                padding: 0.25rem 0.5rem; 
-                border-radius: 4px; 
-                font-size: 0.8rem;
-                display: inline-block;
-                margin-top: 0.5rem;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>📚 Documentation Previews</h1>
-              <div class="preview-grid" id="previews">
-          EOF
-          
-          # Adiciona cada preview encontrado
+
+      - name: Generate index.html
+        run: |
+          TEMPLATE=index.template.html
+          OUTPUT=index.html
+          PR_CARDS=""
+
           for dir in */pr-*; do
-            if [ -d "$dir" ]; then
-              repo=$(dirname "$dir")
-              pr_dir=$(basename "$dir")
-              pr_num=$(echo "$pr_dir" | cut -d'-' -f2)
-              
-              echo "        <div class=\"preview-card\">" >> index.html
-              echo "          <h3><a href=\"$dir/\">$repo</a></h3>" >> index.html
-              echo "          <div class=\"meta\">Pull Request #$pr_num</div>" >> index.html
-              echo "          <span class=\"badge\">Preview Ativo</span>" >> index.html
-              echo "        </div>" >> index.html
-            fi
+            [ -d "$dir" ] || continue
+            repo=$(dirname "$dir")
+            pr_dir=$(basename "$dir")
+            pr_num=$(echo "$pr_dir" | cut -d'-' -f2)
+
+            PR_CARDS+="<div class='card'><h3><a href='$dir/'>$repo</a></h3><p>Pull Request #$pr_num</p></div>"
           done
-          
-          echo "      </div>" >> index.html
-          echo "    </div>" >> index.html
-          echo "  </body>" >> index.html
-          echo "</html>" >> index.html
-          
-          # Commit as mudanças
-          git add .
-          git commit -m "Update preview for $repo_name PR #${{ github.event.client_payload.pr_number }}" || echo "No changes"
-          git push origin gh-pages
-      
-      - name: Wait for Pages deployment
-        run: |
-          echo "⏳ Waiting for GitHub Pages to update..."
-          sleep 10
-      
-      - name: Comment on PR
-        run: |
-          repo_name=$(echo "${{ github.event.client_payload.artifact_repo }}" | cut -d'/' -f2)
-          preview_url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$repo_name/pr-${{ github.event.client_payload.pr_number }}/"
-          
-          curl -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d "{\"body\":\"🚀 **Preview disponível!**\\n\\n📖 **Documentação:** $preview_url\\n\\n> Preview será atualizado automaticamente a cada push.\"}"
+
+          sed "s|<!-- PR_PLACEHOLDER -->|$PR_CARDS|g" $TEMPLATE > $OUTPUT
+
+      - name: Deploy to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./
+          name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          retention-days: 1
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          preview: true
