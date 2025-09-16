@@ -94,15 +94,20 @@ jobs:
           # Create a new card for this PR
           NEW_PR="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
 
-          # Rebuild the block with all PRs + new one
+          # Rebuild the block, but only add NEW_PR if it’s not already in PR_BLOCK
           echo "<!-- PR_PLACEHOLDER -->" > tmp_block.html
           echo "$PR_BLOCK" | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->' >> tmp_block.html
-          echo "$NEW_PR" >> tmp_block.html
+          if ! echo "$PR_BLOCK" | grep -q "$REPO_NAME/pr-$PR_NUM"; then
+            echo "$NEW_PR" >> tmp_block.html
+          else
+            echo "⚠️ Card for PR #$PR_NUM already exists. Skipping duplicate."
+          fi
           echo "<!-- END_PR_PLACEHOLDER -->" >> tmp_block.html
 
           # Insert the updated block back into index.html
           sed -i "/<div class=\"grid\">/r tmp_block.html" $INDEX
           rm tmp_block.html
+
 
       # Commit the updated previews and index.html to gh-pages branch
       - name: Commit updates to gh-pages
