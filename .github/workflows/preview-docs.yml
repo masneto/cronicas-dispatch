@@ -81,24 +81,29 @@ jobs:
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
           PR_NUM=${{ github.event.client_payload.pr_number }}
 
-          # Extract the placeholder block if it exists
+          # Extract existing PR cards
           if grep -q '<!-- PR_PLACEHOLDER -->' $INDEX; then
             PR_BLOCK=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX)
-            # Remove old block to avoid duplicates
             sed -i '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/d' $INDEX
           else
             PR_BLOCK=""
           fi
 
-          # Create a new card for this PR
+          # Create a new card if not already present
           NEW_PR="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
-
-          # Rebuild the block, only add NEW_PR if it’s not already present
           CARDS=$(echo "$PR_BLOCK" | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->' | grep -v "$REPO_NAME/pr-$PR_NUM")
           CARDS="$CARDS"$'\n'"$NEW_PR"
 
-          # Insert the updated block back into index.html
-          sed -i "/<div class=\"grid\">/a <!-- PR_PLACEHOLDER -->"$'\n'"$CARDS"$'\n'"<!-- END_PR_PLACEHOLDER -->" $INDEX
+          # Save to temp file
+          echo "<!-- PR_PLACEHOLDER -->"$'\n'"$CARDS"$'\n'"<!-- END_PR_PLACEHOLDER -->" > tmp_block.html
+
+          # Insert into index.html safely after the <div class="grid">
+          awk -v insert="$(cat tmp_block.html)" '
+            /<div class="grid">/ {print; print insert; next} {print}
+          ' $INDEX > tmp_index.html && mv tmp_index.html $INDEX
+
+          rm tmp_block.html
+
 
 
       # Commit the updated previews and index.html to gh-pages branch
