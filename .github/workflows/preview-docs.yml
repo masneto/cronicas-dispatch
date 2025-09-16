@@ -81,29 +81,24 @@ jobs:
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
           PR_NUM=${{ github.event.client_payload.pr_number }}
 
-          # Extract current cards from index.html
+          # Extract the placeholder block if it exists
           if grep -q '<!-- PR_PLACEHOLDER -->' $INDEX; then
-            # Get all lines between placeholders
-            CARDS=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX \
-                    | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->')
-            # Remove duplicates
-            CARDS=$(echo "$CARDS" | awk '!seen[$0]++')
+            PR_BLOCK=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX)
+            # Remove old block to avoid duplicates
+            sed -i '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/d' $INDEX
           else
-            CARDS=""
+            PR_BLOCK=""
           fi
 
-          # Add new card only if it doesn't exist
-          NEW_CARD="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
-          if ! echo "$CARDS" | grep -q "$REPO_NAME/pr-$PR_NUM"; then
-            CARDS="$CARDS"$'\n'"$NEW_CARD"
-          fi
+          # Create a new card for this PR
+          NEW_PR="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
 
-          # Replace the placeholder block with the updated cards
-          sed -i "/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/c\
-          <!-- PR_PLACEHOLDER -->\
-          $CARDS\
-          <!-- END_PR_PLACEHOLDER -->" $INDEX
+          # Rebuild the block, only add NEW_PR if it’s not already present
+          CARDS=$(echo "$PR_BLOCK" | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->' | grep -v "$REPO_NAME/pr-$PR_NUM")
+          CARDS="$CARDS"$'\n'"$NEW_PR"
 
+          # Insert the updated block back into index.html
+          sed -i "/<div class=\"grid\">/a <!-- PR_PLACEHOLDER -->"$'\n'"$CARDS"$'\n'"<!-- END_PR_PLACEHOLDER -->" $INDEX
 
 
       # Commit the updated previews and index.html to gh-pages branch
