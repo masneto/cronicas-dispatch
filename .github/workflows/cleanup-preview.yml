@@ -15,17 +15,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout the repository, including gh-pages branch history
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
+      # Configure Git user for commits made by the workflow
       - name: Setup Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # Ensure gh-pages branch exists (create it if missing)
       - name: Create gh-pages if missing
         run: |
           git fetch origin gh-pages:gh-pages || true
@@ -43,6 +46,7 @@ jobs:
             git push origin gh-pages
           fi
 
+      # Remove the directory for the specific PR preview inside gh-pages
       - name: Remove specific PR preview
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
@@ -56,6 +60,7 @@ jobs:
             echo "Preview directory not found: $TARGET_DIR"
           fi
 
+      # Update index.html by removing the preview card related to the closed/merged PR
       - name: Update index.html
         run: |
           PR_NUM="${{ github.event.client_payload.pr_number }}"
@@ -63,7 +68,7 @@ jobs:
           
           if [ -f index.html ]; then
             echo "Removing card for PR #$PR_NUM in $REPO_NAME from index.html"
-            # Remove todo bloco <div class='card'> que contenha $REPO_NAME/pr-$PR_NUM
+            # Remove the <div class='card'> block that contains the PR path reference
             sed -i.bak "/<div class='card'>/,/<\/div>/{
               /$REPO_NAME\/pr-$PR_NUM/ d
             }" index.html
@@ -71,19 +76,26 @@ jobs:
             echo "index.html not found"
           fi
 
+      # Commit and push changes back to gh-pages branch
       - name: Commit and push cleanup
+        env:
+          PR_NUM: ${{ github.event.client_payload.pr_number }}
+          REPO_NAME: ${{ github.event.client_payload.artifact_repo }}
         run: |
+          REPO_NAME=$(basename "$REPO_NAME")   # Keep only the repo name (remove owner/)
           git add -A
-          git commit -m "Remove PR #${PR_NUM} preview and index card for ${REPO_NAME}" || echo "No changes to commit"
+          git commit -m "Remove PR #$PR_NUM preview and index card for $REPO_NAME" || echo "No changes to commit"
           git push origin gh-pages
 
+      # Upload the updated site content as an artifact for GitHub Pages
       - name: Upload updated Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./
           name: cleanup-pr-${{ github.event.client_payload.pr_number }}
           retention-days: 1
-
+          
+      # Deploy the updated artifact to GitHub Pages
       - name: Deploy updated Pages
         uses: actions/deploy-pages@v4
         with:

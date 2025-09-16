@@ -15,17 +15,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout the repository, including gh-pages branch history
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
+      # Configure Git user for commits made by the workflow
       - name: Setup Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # Ensure gh-pages branch exists (create it if missing)
       - name: Create gh-pages if missing
         run: |
           git fetch origin gh-pages:gh-pages || true
@@ -43,6 +46,7 @@ jobs:
             git push origin gh-pages
           fi
 
+      # Download the PR artifact previously uploaded by the build workflow
       - name: Download PR artifact
         uses: actions/download-artifact@v4
         with:
@@ -52,6 +56,7 @@ jobs:
           run-id: ${{ github.event.client_payload.artifact_run_id }}
           github-token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
+      # Copy artifact content into the correct folder under gh-pages
       - name: Move PR preview to branch
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
@@ -60,6 +65,7 @@ jobs:
           cp -r ./temp-preview/* "$TARGET_DIR/"
           rm -rf ./temp-preview
 
+      # Ensure index.html exists (copy template from main branch if missing)
       - name: Copy template index.html from main if missing
         run: |
           git fetch origin main:index-template
@@ -68,6 +74,7 @@ jobs:
             cp index.template.html index.html
           fi
 
+      # Update index.html with a new card for the current PR
       - name: Update index.html with current PRs
         run: |
           TEMPLATE=index.template.html
@@ -75,34 +82,36 @@ jobs:
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
           PR_NUM=${{ github.event.client_payload.pr_number }}
 
-          # Extrai o bloco existente de PRs, se houver
+          # Extract the placeholder block if it exists
           if grep -q '<!-- PR_PLACEHOLDER -->' $INDEX; then
             PR_BLOCK=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX)
-            # Remove bloco antigo
+            # Remove old block
             sed -i '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/d' $INDEX
           else
             PR_BLOCK=""
           fi
 
-          # Adiciona a nova PR
+          # Create a new card for this PR
           NEW_PR="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
 
-          # Reconstrói o bloco completo
+          # Rebuild the block with all PRs + new one
           echo "<!-- PR_PLACEHOLDER -->" > tmp_block.html
           echo "$PR_BLOCK" | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->' >> tmp_block.html
           echo "$NEW_PR" >> tmp_block.html
           echo "<!-- END_PR_PLACEHOLDER -->" >> tmp_block.html
 
-          # Insere o bloco atualizado no index
+          # Insert the updated block back into index.html
           sed -i "/<div class=\"grid\">/r tmp_block.html" $INDEX
           rm tmp_block.html
 
+      # Commit the updated previews and index.html to gh-pages branch
       - name: Commit updates to gh-pages
         run: |
           git add .
           git commit -m "Update previews for PR #${{ github.event.client_payload.pr_number }}" || echo "Nothing to commit"
           git push origin gh-pages
 
+      # Upload updated site content as an artifact for GitHub Pages
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
@@ -110,6 +119,7 @@ jobs:
           name: github-pages-pr-${{ github.event.client_payload.pr_number }}
           retention-days: 1
 
+      # Deploy updated artifact to GitHub Pages
       - name: Deploy Pages Preview
         id: deployment
         uses: actions/deploy-pages@v4
@@ -117,6 +127,7 @@ jobs:
           artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
           preview: true
 
+      # Post a comment on the PR with the link to the preview
       - name: Comment PR with preview link
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
@@ -125,4 +136,4 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
-            -d "{\"body\":\"🚀 **Preview disponível!**\\n\\n📖 **Documentação:** $PREVIEW_URL\"}"
+            -d "{\"body\":\"🚀 **Preview available!**\\n\\n📖 **Documentation:** $PREVIEW_URL\"}"
