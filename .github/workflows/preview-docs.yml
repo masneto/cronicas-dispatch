@@ -133,9 +133,31 @@ jobs:
       - name: Comment PR with preview link
         run: |
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
-          PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$REPO_NAME/pr-${{ github.event.client_payload.pr_number }}/"
+          PR_NUM=${{ github.event.client_payload.pr_number }}
+          PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$REPO_NAME/pr-$PR_NUM/"
+
+          # Get all comments
+          COMMENTS=$(curl -s -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/$PR_NUM/comments")
+
+          # Loop through comment IDs and authors
+          echo "$COMMENTS" | jq -c '.[] | {id: .id, user: .user.login}' | while read comment; do
+            ID=$(echo "$comment" | jq -r '.id')
+            USER=$(echo "$comment" | jq -r '.user')
+            
+            # Delete only if the comment is NOT by the bot or GitHub Copilot
+            if [ "$USER" != "github-actions[bot]" ] && [ "$USER" != "copilot[bot]" ]; then
+              echo "Deleting comment $ID by $USER"
+              curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
+                   -H "Accept: application/vnd.github+json" \
+                   "https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/comments/$ID"
+            fi
+          done
+
+          # Post the new preview comment
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT_GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/${{ github.event.client_payload.pr_number }}/comments \
+            "https://api.github.com/repos/${{ github.event.client_payload.artifact_repo }}/issues/$PR_NUM/comments" \
             -d "{\"body\":\"🚀 **Preview available!**\\n\\n📖 **Documentation:** $PREVIEW_URL\"}"
