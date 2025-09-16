@@ -77,36 +77,33 @@ jobs:
       # Update index.html with a new card for the current PR
       - name: Update index.html with current PRs
         run: |
-          TEMPLATE=index.template.html
           INDEX=index.html
           REPO_NAME=$(basename "${{ github.event.client_payload.artifact_repo }}")
           PR_NUM=${{ github.event.client_payload.pr_number }}
 
-          # Extract the placeholder block if it exists
+          # Extract current cards from index.html
           if grep -q '<!-- PR_PLACEHOLDER -->' $INDEX; then
-            PR_BLOCK=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX)
-            # Remove old block
-            sed -i '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/d' $INDEX
+            # Get all lines between placeholders
+            CARDS=$(sed -n '/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/p' $INDEX \
+                    | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->')
+            # Remove duplicates
+            CARDS=$(echo "$CARDS" | awk '!seen[$0]++')
           else
-            PR_BLOCK=""
+            CARDS=""
           fi
 
-          # Create a new card for this PR
-          NEW_PR="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
-
-          # Rebuild the block, but only add NEW_PR if it’s not already in PR_BLOCK
-          echo "<!-- PR_PLACEHOLDER -->" > tmp_block.html
-          echo "$PR_BLOCK" | grep -v '<!-- PR_PLACEHOLDER -->\|<!-- END_PR_PLACEHOLDER -->' >> tmp_block.html
-          if ! echo "$PR_BLOCK" | grep -q "$REPO_NAME/pr-$PR_NUM"; then
-            echo "$NEW_PR" >> tmp_block.html
-          else
-            echo "⚠️ Card for PR #$PR_NUM already exists. Skipping duplicate."
+          # Add new card only if it doesn't exist
+          NEW_CARD="<div class='card'><h3><a href='$REPO_NAME/pr-$PR_NUM/'>$REPO_NAME</a></h3><p>Pull Request #$PR_NUM</p></div>"
+          if ! echo "$CARDS" | grep -q "$REPO_NAME/pr-$PR_NUM"; then
+            CARDS="$CARDS"$'\n'"$NEW_CARD"
           fi
-          echo "<!-- END_PR_PLACEHOLDER -->" >> tmp_block.html
 
-          # Insert the updated block back into index.html
-          sed -i "/<div class=\"grid\">/r tmp_block.html" $INDEX
-          rm tmp_block.html
+          # Replace the placeholder block with the updated cards
+          sed -i "/<!-- PR_PLACEHOLDER -->/,/<!-- END_PR_PLACEHOLDER -->/c\
+          <!-- PR_PLACEHOLDER -->\
+          $CARDS\
+          <!-- END_PR_PLACEHOLDER -->" $INDEX
+
 
 
       # Commit the updated previews and index.html to gh-pages branch
