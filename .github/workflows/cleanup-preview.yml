@@ -68,8 +68,8 @@ jobs:
           
           if [ -f index.html ]; then
             echo "Removing card for PR #$PR_NUM in $REPO_NAME from index.html"
-            # Remove the <div class='card'> block that contains the PR path reference
-            sed -i.bak "/<div class='card'>/,/<\/div>/{
+            # Remove the <div class='card'> block that contains the PR path reference (no backup created)
+            sed -i "/<div class='card'>/,/<\/div>/{
               /$REPO_NAME\/pr-$PR_NUM/ d
             }" index.html
           else
@@ -94,7 +94,7 @@ jobs:
           path: ./
           name: cleanup-pr-${{ github.event.client_payload.pr_number }}
           retention-days: 1
-          
+
       # Deploy the updated artifact to GitHub Pages
       - name: Deploy updated Pages
         uses: actions/deploy-pages@v4
