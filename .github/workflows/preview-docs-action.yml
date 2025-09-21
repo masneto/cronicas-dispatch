@@ -1,0 +1,31 @@
+name: Deploy Docs Preview Action
+run-name: 'Deploy Docs Preview for Repository ${{ github.event.client_payload.artifact_repo }} PR #${{ github.event.client_payload.pr_number }}'
+
+on:
+  repository_dispatch:
+    types: [pr-preview-action]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy Docs Preview Action
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository, including gh-pages branch history
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_GITHUB_TOKEN }}
+
+      - name: Deploy Preview Action
+        uses: masneto/cronicas-actions/preview-docs-action@main
+        with:
+          artifact_repo: ${{ github.event.client_payload.artifact_repo }}
+          pr_number: ${{ github.event.client_payload.pr_number }}
+          artifact_run_id: ${{ github.event.client_payload.artifact_run_id }}
+          token: ${{ secrets.PAT_GITHUB_TOKEN }}

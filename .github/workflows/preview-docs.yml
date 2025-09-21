@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   deploy:
+    name: Deploy Docs Preview
     runs-on: ubuntu-latest
-
     steps:
       # Checkout the repository, including gh-pages branch history
       - name: Checkout gh-pages branch
