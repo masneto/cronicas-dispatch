@@ -23,7 +23,7 @@ jobs:
           token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
       - name: Deploy Preview Action
-        uses: masneto/cronicas-actions/preview-docs-action@main
+        uses: masneto/cronicas-actions/.github/actions/preview-docs-action@main
         with:
           artifact_repo: ${{ github.event.client_payload.artifact_repo }}
           pr_number: ${{ github.event.client_payload.pr_number }}
