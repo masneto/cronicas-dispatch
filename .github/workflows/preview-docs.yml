@@ -115,7 +115,7 @@ jobs:
 
       # Upload updated site content as an artifact for GitHub Pages
       - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: ./
           name: github-pages-pr-${{ github.event.client_payload.pr_number }}

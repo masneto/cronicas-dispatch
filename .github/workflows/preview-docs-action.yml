@@ -15,17 +15,39 @@ jobs:
     name: Deploy Docs Preview Action
     runs-on: ubuntu-latest
     steps:
-      # Checkout the repository, including gh-pages branch history
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.PAT_GITHUB_TOKEN }}
 
-      - name: Deploy Preview Action
+      - name: Deploy Preview (prepare gh-pages)
         uses: masneto/cronicas-actions/.github/actions/preview-docs-action@main
         with:
           artifact_repo: ${{ github.event.client_payload.artifact_repo }}
           pr_number: ${{ github.event.client_payload.pr_number }}
           artifact_run_id: ${{ github.event.client_payload.artifact_run_id }}
           token: ${{ secrets.PAT_GITHUB_TOKEN }}
+          step: package
+
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./
+          name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          retention-days: 1
+
+      - name: Deploy Pages Preview
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-pr-${{ github.event.client_payload.pr_number }}
+          preview: true
+
+      - name: Comment PR with preview link
+        uses: masneto/cronicas-actions/.github/actions/preview-docs-action@main
+        with:
+          artifact_repo: ${{ github.event.client_payload.artifact_repo }}
+          pr_number: ${{ github.event.client_payload.pr_number }}
+          token: ${{ secrets.PAT_GITHUB_TOKEN }}
+          step: comment
